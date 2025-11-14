@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+// screens/MessengerScreen.js
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,16 +13,17 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import ChatScreen from "../components/ChatScreen";
+import { getAllUsers, getConversations } from "../utils/db";
 
-// Local pictures
+// Local pictures (fallback)
 import Pic from "../assets/Pic.jpeg";
-import Pic1 from "../assets/Pic1.jpeg";
-import Pic2 from "../assets/Pic2.jpeg";
 
-export default function MessengerScreen() {
+export default function MessengerScreen({ currentUser }) {
   const [selectedChat, setSelectedChat] = useState(null);
   const [search, setSearch] = useState("");
   const [isDark, setIsDark] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const theme = {
     background: isDark ? "#0D0D0D" : "#F9FAFB",
@@ -31,38 +33,89 @@ export default function MessengerScreen() {
     accent: "#007AFF",
   };
 
-  const users = [
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    try {
+      const dbUsers = await getAllUsers();
+      
+      // Filter out the current user from the list and ensure name exists
+      const otherUsers = dbUsers
+        .filter(user => user.id !== currentUser?.id)
+        .map(user => ({
+          ...user,
+          name: user.username || user.email || 'Unknown User',
+          status: Math.random() > 0.5 ? "Online" : "Offline",
+          lastMessage: "Tap to start conversation",
+          lastTime: "",
+          unreadCount: 0,
+          avatar: user.avatar ? { uri: user.avatar } : Pic
+        }));
+
+      // Try to load real conversation data
+      try {
+        const conversations = await getConversations(currentUser.id);
+        conversations.forEach(conv => {
+          const userIndex = otherUsers.findIndex(u => u.id === conv.user_id);
+          if (userIndex !== -1) {
+            otherUsers[userIndex].lastMessage = conv.last_message || "Tap to start conversation";
+            otherUsers[userIndex].lastTime = formatTime(conv.timestamp);
+          }
+        });
+      } catch (convError) {
+        console.log('Error loading conversations:', convError);
+      }
+
+      setUsers(otherUsers);
+    } catch (error) {
+      console.log('Error loading users:', error);
+      setUsers(getDemoUsers());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diff = now - date;
+    
+    if (diff < 24 * 60 * 60 * 1000) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
+  };
+
+  const getDemoUsers = () => [
     {
       id: "1",
       name: "Smith",
-      avatar: Pic1,
+      username: "smith",
+      avatar: Pic,
       status: "Online",
       lastMessage: "See you later! 👋",
       lastTime: "2:45 PM",
       unreadCount: 2,
     },
     {
-      id: "2",
+      id: "2", 
       name: "Ryan",
-      avatar: Pic2,
+      username: "ryan",
+      avatar: Pic,
       status: "Offline",
       lastMessage: "Working on a project 💻",
       lastTime: "11:12 AM",
       unreadCount: 0,
     },
-    {
-      id: "0",
-      name: "Jonathan",
-      avatar: Pic,
-      status: "Online",
-      lastMessage: "Hey there! 😊",
-      lastTime: "Yesterday",
-      unreadCount: 5,
-    },
   ];
 
+  // FIXED: Add null check for user.name
   const filteredUsers = users.filter((u) =>
-    u.name.toLowerCase().includes(search.toLowerCase())
+    u.name && u.name.toLowerCase().includes(search.toLowerCase())
   );
 
   if (selectedChat) {
@@ -71,7 +124,18 @@ export default function MessengerScreen() {
         user={selectedChat}
         goBack={() => setSelectedChat(null)}
         isDark={isDark}
+        currentUser={currentUser}
       />
+    );
+  }
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <Text style={{ color: theme.text, textAlign: 'center', marginTop: 20 }}>
+          Loading users...
+        </Text>
+      </View>
     );
   }
 
@@ -130,7 +194,11 @@ export default function MessengerScreen() {
               onPress={() => setSelectedChat(user)}
             >
               <View>
-                <Image source={user.avatar} style={styles.headAvatar} />
+                <Image 
+                  source={user.avatar} 
+                  style={styles.headAvatar} 
+                  defaultSource={Pic}
+                />
                 {user.unreadCount > 0 && (
                   <View style={styles.unreadBadge}>
                     <Text style={styles.unreadText}>{user.unreadCount}</Text>
@@ -141,7 +209,7 @@ export default function MessengerScreen() {
                 style={[styles.headName, { color: theme.text }]}
                 numberOfLines={1}
               >
-                {user.name}
+                {user.name || 'Unknown'}
               </Text>
             </TouchableOpacity>
           ))}
@@ -151,7 +219,7 @@ export default function MessengerScreen() {
       {/* Chat List */}
       <FlatList
         data={filteredUsers}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[
@@ -160,11 +228,15 @@ export default function MessengerScreen() {
             ]}
             onPress={() => setSelectedChat(item)}
           >
-            <Image source={item.avatar} style={styles.avatar} />
+            <Image 
+              source={item.avatar} 
+              style={styles.avatar} 
+              defaultSource={Pic}
+            />
             <View style={{ flex: 1 }}>
               <View style={styles.row}>
                 <Text style={[styles.name, { color: theme.text }]}>
-                  {item.name}
+                  {item.name || 'Unknown User'}
                 </Text>
                 <Text style={styles.time}>{item.lastTime}</Text>
               </View>
@@ -183,6 +255,11 @@ export default function MessengerScreen() {
           </TouchableOpacity>
         )}
         contentContainerStyle={{ paddingBottom: 80 }}
+        ListEmptyComponent={
+          <Text style={[styles.emptyText, { color: theme.text }]}>
+            No users found. Register more accounts to chat!
+          </Text>
+        }
       />
     </View>
   );
@@ -190,8 +267,6 @@ export default function MessengerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-
-  // Header
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -200,8 +275,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   title: { fontSize: 28, fontWeight: "700" },
-
-  // Search bar
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -210,13 +283,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     elevation: 2,
-    marginBottom: 6, // ✅ reduced (was 10) → tighter layout
+    marginBottom: 6,
   },
   searchInput: { flex: 1, fontSize: 15 },
-
-  // Chat heads
   headContainer: {
-    marginBottom: 6, // ✅ tightened (was more before)
+    marginBottom: 6,
   },
   headScrollContent: {
     paddingHorizontal: 10,
@@ -257,8 +328,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
   },
-
-  // Chat list
   chatCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -289,5 +358,10 @@ const styles = StyleSheet.create({
   lastMessage: {
     marginTop: 2,
     fontSize: 14,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 50,
+    fontSize: 16,
   },
 });

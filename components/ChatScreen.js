@@ -1,7 +1,5 @@
-//folder - components
-//ChatScreen.js
-
-import React, { useState } from "react";
+// components/ChatScreen.js
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,11 +10,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
+  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Pic from "../assets/Pic.jpeg"; // You
+import { saveMessage, getMessages } from "../utils/db";
 
-export default function ChatScreen({ user, goBack, isDark }) {
+export default function ChatScreen({ user, goBack, isDark, currentUser }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
 
@@ -28,16 +27,48 @@ export default function ChatScreen({ user, goBack, isDark }) {
     placeholder: isDark ? "#aaa" : "#999",
   };
 
-  const sendMessage = () => {
+  // Load messages when component mounts
+  useEffect(() => {
+    loadMessages();
+  }, [user.id]);
+
+  const loadMessages = async () => {
+    try {
+      const savedMessages = await getMessages(currentUser.id, user.id);
+      const formattedMessages = savedMessages.map(msg => ({
+        id: msg.id.toString(),
+        text: msg.message_text,
+        fromMe: msg.sender_id === currentUser.id,
+        time: formatTime(msg.timestamp),
+        sender: msg.sender_name,
+      }));
+      setMessages(formattedMessages);
+    } catch (error) {
+      console.log('Error loading messages:', error);
+    }
+  };
+
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const sendMessage = async () => {
     if (!input.trim()) return;
-    const newMsg = {
-      id: Date.now().toString(),
-      text: input,
-      fromMe: true,
-      time: "Now",
-    };
-    setMessages([...messages, newMsg]);
-    setInput("");
+
+    try {
+      // Save message to database
+      await saveMessage(currentUser.id, user.id, input.trim());
+      
+      // Reload messages to get the latest
+      await loadMessages();
+      
+      // Clear input
+      setInput("");
+    } catch (error) {
+      console.log('Error sending message:', error);
+      Alert.alert('Error', 'Failed to send message');
+    }
   };
 
   return (
@@ -118,6 +149,11 @@ export default function ChatScreen({ user, goBack, isDark }) {
           </View>
         )}
         contentContainerStyle={{ padding: 16 }}
+        ListEmptyComponent={
+          <Text style={[styles.emptyChat, { color: theme.placeholder }]}>
+            No messages yet. Start a conversation!
+          </Text>
+        }
       />
 
       {/* Input */}
@@ -134,7 +170,8 @@ export default function ChatScreen({ user, goBack, isDark }) {
           placeholderTextColor={theme.placeholder}
           value={input}
           onChangeText={setInput}
-        />
+          onSubmitEditing={sendMessage}
+            />
         <Ionicons
           name="attach-outline"
           size={22}
@@ -166,29 +203,62 @@ const styles = StyleSheet.create({
     marginHorizontal: 8,
   },
   headerName: { fontWeight: "600", fontSize: 17 },
-  messageRow: { marginVertical: 4 },
-  myRow: { alignSelf: "flex-end" },
-  theirRow: { alignSelf: "flex-start" },
+  messageRow: { 
+    flexDirection: "row",
+    alignItems: "flex-end",
+    marginVertical: 4,
+  },
+  myRow: { 
+    justifyContent: "flex-end",
+  },
+  theirRow: { 
+    justifyContent: "flex-start",
+  },
   bubble: {
-    padding: 10,
+    padding: 12,
     borderRadius: 18,
     maxWidth: "75%",
     marginHorizontal: 6,
   },
-  messageText: { fontSize: 15 },
-  timeText: { fontSize: 11, textAlign: "right", marginTop: 4 },
+  messageText: { fontSize: 16 },
+  timeText: { 
+    fontSize: 11, 
+    textAlign: "right", 
+    marginTop: 4,
+    opacity: 0.7,
+  },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    padding: 10,
+    padding: 12,
     borderTopWidth: 0.5,
     borderTopColor: "#ccc",
   },
-  input: { flex: 1, marginHorizontal: 8, fontSize: 15 },
+  input: { 
+    flex: 1, 
+    marginHorizontal: 8, 
+    fontSize: 16,
+    paddingVertical: 8,
+  },
   sendButton: {
     backgroundColor: "#007AFF",
     borderRadius: 20,
-    padding: 10,
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  avatarSmall: { width: 28, height: 28, borderRadius: 14, marginRight: 6 },
+  avatarSmall: { 
+    width: 32, 
+    height: 32, 
+    borderRadius: 16, 
+    marginRight: 8,
+  },
+  emptyChat: {
+    textAlign: 'center',
+    marginTop: 50,
+    fontSize: 16,
+    fontStyle: 'italic',
+  },
 });
+    
